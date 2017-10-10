@@ -1,0 +1,161 @@
+---
+title: "Fatal Police Shootings"
+author: "Devin Luu"
+output:
+  html_notebook:
+    code_folding: hide
+    toc: true
+    toc_depth: 4
+    toc_float: true
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(data.world)
+library(shiny)
+library(gridExtra)
+library(MASS)
+knitr::opts_chunk$set(echo = TRUE)
+```
+  
+## **R Session Info**  
+
+```{r}
+sessionInfo()
+```
+
+## **Github Link** 
+TBD
+
+## **Introduction** 
+Some Introduction.
+
+## **Getting data from data.world** 
+Short description of the data.
+```{r}
+project <- "https://data.world/devtl/fatalpoliceshootings/"
+#data.world::set_config(cfg_env("DW_API"))
+df <- data.world::query(data.world::qry_sql("SELECT * FROM fatalPoliceShootingsCleaned"), dataset = project)
+
+summary(df)
+```
+
+## Possible classifications
+
+This dataset has many qualitative variables that could do well for classification methods. I am interested in predicting a victim's threat level based on age, whether or not they are armed, age, gender, race, whether or not they are fleeing, and signs of mental illness.
+
+```{r}
+predictors <- df%>%dplyr::select("armed","age","gender","race","signs_of_mental_illness","flee")
+
+# signs of mental illness: 1=T, 0=F
+x <- factor(rep(predictors$signs_of_mental_illness))
+levels(x) <- 0:1
+predictors$signs_of_mental_illness = x
+
+# fleeing: 3=car, 2=foot, 1=other, 0=not fleeing
+y <- factor(rep(predictors$flee))
+levels(y) = c(3,2,0,1)
+predictors$flee <- y
+
+# gender: 1=M, 0=F
+w <- factor(rep(predictors$gender))
+levels(w) <- 0:1
+predictors$gender = w
+
+# armed=1 or unarmed=0
+z <- unlist(
+lapply(
+predictors$armed, function(s){ifelse(s == "unarmed", as.integer(0), as.integer(1))}
+)
+)
+predictors <- predictors %>% mutate(armedOrUnarmed = z)
+renderTable(head(predictors), hover = TRUE, width = "auto")
+```
+
+Value Mappings:
+* signs of mental illness: 1=T, 0=F
+* fleeing: 3=car, 2=foot, 1=other, 0=not fleeing
+* gender: 1=M, 0=F
+* armed=1 or unarmed=0
+
+
+## Demographics
+
+### Age
+```{r}
+renderPlot({
+  ggplot(na.omit(df["age"]), mapping = aes(x = age)) + geom_bar(stat = "count", fill = "steelblue") + theme_minimal()
+})
+
+summary(na.omit(df$age))
+```
+
+
+### Gender
+```{r}
+renderPlot({
+  pl2.1 <- ggplot(na.omit(df["gender"]), mapping = aes(x = gender, fill=gender)) + geom_bar(stat = "count", fill = "tomato2") + theme_minimal()
+  pl2.2 <- ggplot(na.omit(df[c("age","gender")]), mapping = aes(x = age, fill = gender)) + geom_bar(stat = "count") + theme_minimal() + facet_wrap(~gender) + theme(legend.position="none")
+  grid.arrange(pl2.1,pl2.2, ncol = 2)
+})
+
+count(df, gender)
+```
+
+### Race
+```{r}
+renderPlot({
+  ggplot(na.omit(df["race"]), mapping = aes(x = race)) + geom_bar(stat = "count") + theme_minimal()
+  ggplot(na.omit(df[c("age","race")]), mapping = aes(x = age, fill = race)) + geom_bar(stat = "count") + theme_minimal() + facet_wrap(~race) + theme(legend.position="none")
+
+})
+
+count(df, race)
+```
+
+## Linear Discriminant Analysis
+
+Using 10-fold cross-validation.
+```{r}
+### TRAIN/TEST 
+df1 <- cbind(threat = df$threat_level,predictors)
+train <- sample(1:nrow(df1), 0.9*nrow(df1))
+testDf <- na.omit(df1[-train,])
+
+
+### LDA
+lda.fit <- lda(threat ~ age + gender + flee + signs_of_mental_illness + armedOrUnarmed, data = df1, subset = train)
+
+renderPrint(lda.fit)
+```
+
+
+```{r}
+ldaPred <- data.frame(predict(lda.fit,testDf))
+
+renderPlot({
+  pl1 <- ggplot(ldaPred) + geom_histogram(mapping = aes(x=x.LD1), color = "steelblue") + facet_wrap(~ class) + theme_minimal()
+  pl2 <- ggplot(ldaPred) + geom_histogram(mapping = aes(x=x.LD2), color = "tomato2") + facet_wrap(~ class) + theme_minimal()
+  grid.arrange(pl1,pl2, nrow =2)
+}, width = 'auto')
+
+renderPlot({
+  pl3 <- ggplot(ldaPred) + geom_boxplot(mapping = aes(x=class, y=x.LD1)) + theme_minimal()
+  pl4 <- ggplot(ldaPred) + geom_boxplot(mapping = aes(x=class, y=x.LD2)) + theme_minimal()
+  grid.arrange(pl3,pl4, nrow =2)
+}, width = 'auto')
+```
+
+```{r}
+renderPlot({
+  ggplot(ldaPred, mapping = aes(x.LD1, x.LD2, color = class)) + geom_point(alpha = 0.5) + theme_minimal()
+})
+
+testGroup = testDf$threat
+ldaClass=ldaPred$class
+table(ldaClass, testGroup)
+mean(ldaClass == testGroup)
+```
+
+
