@@ -37,7 +37,7 @@ predictors <- predictors %>% mutate(armedOrUnarmed = z)
 df1 <- cbind(threat = df$threat_level,predictors)
 train <- sample(1:nrow(df1), 0.9*nrow(df1))
 testDf <- na.omit(df1[-train,])
-
+trainDf<- na.omit(df1[train,])
 
 ### LDA
 lda.fit <- lda(threat ~ age + gender + flee + signs_of_mental_illness + armedOrUnarmed, data = df1, subset = train)
@@ -59,6 +59,10 @@ ldaClass=ldaPred$class
 table(ldaClass, testGroup)
 mean(ldaClass == testGroup)
 
+## Thresholds
+# want to better predict 'other'
+threshPred <- ldaPred %>% dplyr::mutate(newClass = ifelse(posterior.other > .35, 2, ldaClass))
+table(threshPred$newClass, testGroup)
 
 #k-fold 
 kLDA <- function(k, formula, data){
