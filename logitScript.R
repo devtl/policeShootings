@@ -42,7 +42,7 @@ train2 <- sample(1:nrow(df2), 0.9*nrow(df2))
 testDf2 <- na.omit(df2[-train2,])
 testDf2$threat <- factor(testDf2$threat) # removes "undetermined" level from testDf2
 
-# Logistic regression
+### LOG REGRESSION
 glm.fit = glm(threat ~ age + gender + flee + signs_of_mental_illness + armedOrUnarmed, 
             data = df2, 
             family = binomial, 
@@ -61,7 +61,7 @@ table(glm.pred, testGroup)
 mean(glm.pred == testGroup)
 
 
-# add ROC curve
+### ROC curve
 library("ROCR")    
 pred <- prediction(glm.probs, testGroup)    
 perf <- performance(pred, measure = "tpr", x.measure = "fpr")     

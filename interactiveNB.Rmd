@@ -1,12 +1,14 @@
 ---
 title: "Fatal Police Shootings"
 author: "Devin Luu"
+resource_files:
+- .Renviron
 output:
   html_notebook:
     code_folding: hide
-    toc: true
+    toc: yes
     toc_depth: 4
-    toc_float: true
+    toc_float: yes
 runtime: shiny
 ---
 
@@ -16,6 +18,7 @@ library(data.world)
 library(shiny)
 library(gridExtra)
 library(MASS)
+library(ROCR)  
 knitr::opts_chunk$set(echo = TRUE)
 ```
   
@@ -35,7 +38,7 @@ Some Introduction.
 Short description of the data.
 ```{r}
 project <- "https://data.world/devtl/fatalpoliceshootings/"
-#data.world::set_config(cfg_env("DW_API"))
+data.world::set_config(cfg_env("DW_API"))
 df <- data.world::query(data.world::qry_sql("SELECT * FROM fatalPoliceShootingsCleaned"), dataset = project)
 
 summary(df)
@@ -74,88 +77,118 @@ renderTable(head(predictors), hover = TRUE, width = "auto")
 ```
 
 Value Mappings:
+
 * signs of mental illness: 1=T, 0=F
+
 * fleeing: 3=car, 2=foot, 1=other, 0=not fleeing
+
 * gender: 1=M, 0=F
+
 * armed=1 or unarmed=0
 
+## Traing/Testing
 
-## Demographics
-
-### Age
-```{r}
-renderPlot({
-  ggplot(na.omit(df["age"]), mapping = aes(x = age)) + geom_bar(stat = "count", fill = "steelblue") + theme_minimal()
-})
-
-summary(na.omit(df$age))
-```
-
-
-### Gender
-```{r}
-renderPlot({
-  pl2.1 <- ggplot(na.omit(df["gender"]), mapping = aes(x = gender, fill=gender)) + geom_bar(stat = "count", fill = "tomato2") + theme_minimal()
-  pl2.2 <- ggplot(na.omit(df[c("age","gender")]), mapping = aes(x = age, fill = gender)) + geom_bar(stat = "count") + theme_minimal() + facet_wrap(~gender) + theme(legend.position="none")
-  grid.arrange(pl2.1,pl2.2, ncol = 2)
-})
-
-count(df, gender)
-```
-
-### Race
-```{r}
-renderPlot({
-  ggplot(na.omit(df["race"]), mapping = aes(x = race)) + geom_bar(stat = "count") + theme_minimal()
-  ggplot(na.omit(df[c("age","race")]), mapping = aes(x = age, fill = race)) + geom_bar(stat = "count") + theme_minimal() + facet_wrap(~race) + theme(legend.position="none")
-
-})
-
-count(df, race)
-```
-
-## Linear Discriminant Analysis
-
-Using 10-fold cross-validation.
 ```{r}
 ### TRAIN/TEST 
 df1 <- cbind(threat = df$threat_level,predictors)
 train <- sample(1:nrow(df1), 0.9*nrow(df1))
 testDf <- na.omit(df1[-train,])
+trainDf <- na.omit(df1[train,])
+```
+
+## Classification Methods
+
+### Logistic Regression
+```{r}
+# after filtering out a class level since lr is a binomial method.
+df2 <- filter(df1, threat != "undetermined")
+testDf2 <- filter(testDf, threat != "undetermined")
+testDf2$threat <- factor(testDf2$threat) # removes "undetermined" level from testDf2
+
+train2 <- rownames(
+  filter(trainDf, 
+         threat != "undetermined")
+  )
+
+### LOG REGRESSION
+logFit1 = glm(threat ~ signs_of_mental_illness + armedOrUnarmed, 
+            data = df2, 
+            family = binomial, 
+            subset = train2)
+
+summary(logFit1)
+logProb1 <- predict(logFit1, newdata = testDf2, type="response")
+
+# label classes based on probability threshold for 'other'
+logPred1 <- rep("attack", length(logProb1))
+
+logPred1[logProb1 > 0.5] <- "other"
+testGroup1 = testDf2$threat
+table(logPred1, testGroup1)
+
+logTestErr <- 1- mean(logPred1 == testGroup1)
+```
+The test error for the given LDA model is `r format(logTestErr, digits = 2)`.
+
+```{r}
+### ROC curve
+pred <- prediction(logProb1, testGroup1)    
+perf <- performance(pred, measure = "tpr", x.measure = "fpr") 
+renderPlot({
+  plot(perf, col=rainbow(7), main="ROC curve Theat Levels", xlab="Specificity (False Positives)", ylab="Sensitivity (True Positives)")
+  
+  abline(0, 1)
+})
+
+```
 
 
 ### LDA
-lda.fit <- lda(threat ~ age + gender + flee + signs_of_mental_illness + armedOrUnarmed, data = df1, subset = train)
-
-renderPrint(lda.fit)
-```
-
 
 ```{r}
+### LDA
+lda.fit <- lda(threat ~ signs_of_mental_illness + armedOrUnarmed, data = df1, subset = train)
+
+lda.fit
+
 ldaPred <- data.frame(predict(lda.fit,testDf))
 
-renderPlot({
-  pl1 <- ggplot(ldaPred) + geom_histogram(mapping = aes(x=x.LD1), color = "steelblue") + facet_wrap(~ class) + theme_minimal()
-  pl2 <- ggplot(ldaPred) + geom_histogram(mapping = aes(x=x.LD2), color = "tomato2") + facet_wrap(~ class) + theme_minimal()
-  grid.arrange(pl1,pl2, nrow =2)
-}, width = 'auto')
+#renderTable({head(ldaPred)})
 
 renderPlot({
-  pl3 <- ggplot(ldaPred) + geom_boxplot(mapping = aes(x=class, y=x.LD1)) + theme_minimal()
-  pl4 <- ggplot(ldaPred) + geom_boxplot(mapping = aes(x=class, y=x.LD2)) + theme_minimal()
-  grid.arrange(pl3,pl4, nrow =2)
-}, width = 'auto')
-```
-
-```{r}
-renderPlot({
-  ggplot(ldaPred, mapping = aes(x.LD1, x.LD2, color = class)) + geom_point(alpha = 0.5) + theme_minimal()
+  ggplot(ldaPred, mapping = aes(x.LD1, x.LD2, color = class)) + geom_point(alpha = 0.7) + theme_minimal() + labs(x = "LD1", y = "LD2")
 })
+
 
 testGroup = testDf$threat
 ldaClass=ldaPred$class
-table(ldaClass, testGroup)
-mean(ldaClass == testGroup)
+
+pivotTab <- table(ldaClass, testGroup)
+
+ldaTestErr <- 1 - mean(ldaClass == testGroup)
+
+pivotTab
+
 ```
+
+The test error for the given LDA model is `r format(ldaTestErr, digits = 2)`.
+
+## Quadratic Discriminant Analysis
+```{r}
+qda.fit <- qda(threat ~ signs_of_mental_illness + armedOrUnarmed, data = df1, subset = train)
+
+qda.fit
+
+qdaPred <- data.frame(predict(qda.fit,testDf))
+
+qdaClass <- qdaPred$class
+testGroup = testDf$threat
+table(qdaClass, testGroup)
+
+qdaTestErr <- 1 - mean(qdaClass == testGroup)
+```
+The test error for the given LDA model is `r format(qdaTestErr, digits = 2)`.
+
+## K Nearest-Neighbors
 
 
