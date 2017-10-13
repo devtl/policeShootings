@@ -91,8 +91,11 @@ Value Mappings:
 
 ## Traing/Testing
 
+Our data will be split 90/10 for training and testing purposes, respectively. The split will be randomly sampled using R's sample() function. 
+
 ```{r}
 ### TRAIN/TEST 
+
 df1 <- cbind(threat = df$threat_level,predictors)
 train <- sample(1:nrow(df1), 0.9*nrow(df1))
 testDf <- na.omit(df1[-train,])
@@ -182,6 +185,8 @@ The test error for the given LDA model is `r format(qdaTestErr, digits = 2)`.
 
 ### K Nearest-Neighbors
 
+With K = 5:
+
 ```{r}
 ### TEST/TRAIN
 testDf3 <- dplyr::select(na.omit(df1[-train,]), -armed, -threat, -race)
@@ -199,6 +204,14 @@ knnTestErr <- 1 - mean(knnPred == testThreat3$threat)
 ```
 The test error for the given KNN model is `r format(knnTestErr, digits = 2)`.
 
+### Error Comparison
+
+```{r}
+renderTable({
+  tibble(Method = c("Logit", "LDA", "QDA", "5NN"), TestError = c(format(logTestErr, digits = 2), format(ldaTestErr, digits = 2), format(qdaTestErr, digits = 2), format(knnTestErr, digits = 2)))
+  
+})
+```
 
 ## ROC Curves
 
@@ -285,3 +298,7 @@ renderPlot({
 
 rs3
 ```
+
+## Conclusion
+
+Our predictors, in general, were not significant enough to determine percieved threat levels among police victim shootings as event by the poor AUC levels in our ROC curves. Of the 4 models used (logistic regression, linear discriminant analysis, quadratic discriminant analysis, and 5-nearest neighbors), it seems that LDA and QDA produce similar overall results for a 3-class category ("attack", "other", and "undetermined"). Logistic regression may have a lower test error because it only had to predict between "attack" and "other"("undetermined" was removed because it was the smallest class and had the least effect on the overall model).

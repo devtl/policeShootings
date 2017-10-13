@@ -49,12 +49,9 @@ glm.fit = glm(threat ~ age + gender + flee + signs_of_mental_illness + armedOrUn
             subset = train2)
 
 summary(glm.fit)
-glm.probs <- predict(glm.fit, newdata = testDf2, type="response")
-
 # label classes based on probability threshold for 'other'
 glm.pred <- rep("attack", length(glm.probs))
 glm.pred[glm.probs > 0.45] <- "other"
-
 
 testGroup = testDf2$threat
 table(glm.pred, testGroup)
@@ -62,9 +59,16 @@ mean(glm.pred == testGroup)
 
 
 ### ROC curve
-library("ROCR")    
-pred <- prediction(glm.probs, testGroup)    
-perf <- performance(pred, measure = "tpr", x.measure = "fpr")     
-plot(perf, col=rainbow(7), main="ROC curve Theat Levels", xlab="Specificity (False Positives)", 
+library(pROC)
+
+glmPred <- predict(glm.fit, newdata = testDf2)
+
+glmPred <- lapply(glmPred, function(x){ifelse(x>0, 2, 1)}) # 1=attack, 2=other
+
+ROCPred <- as.vector(glmPred, mode = "numeric")
+
+ROC <- roc(testGroup, as.numeric(ROCPred))
+
+plot(ROC, main="ROC curve Theat Levels", xlab="Specificity (False Positives)", 
      ylab="Sensitivity (True Positives)")    
-abline(0, 1)
+
