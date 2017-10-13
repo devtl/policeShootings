@@ -36,24 +36,22 @@ predictors <- predictors %>% mutate(armedOrUnarmed = z)
 ### TRAIN/TEST 
 df1 <- cbind(threat = df$threat_level,predictors)
 train <- sample(1:nrow(df1), 0.9*nrow(df1))
-testDf <- na.omit(df1[-train,])
+testDf <- dplyr::select(na.omit(df1[-train,]), -armed, -threat, -race)
+trainDf<- dplyr::select(na.omit(df1[train,]), -armed, -threat, -race)
+trainThreat <- dplyr::select(na.omit(df1[train,]), threat)
 
+### KNN
+library(class)
 
-### QDA
-qda.fit <- qda(threat ~ age + gender + flee + signs_of_mental_illness + armedOrUnarmed, data = df1, subset = train)
+knnPred <- knn(trainDf, testDf, trainThreat$threat, k=10)
 
-qdaPred <- predict(qda.fit,testDf)
-
-qdaClass <- qdaPred$class
-testGroup = testDf$threat
-table(qdaClass, testGroup)
-mean(qdaClass == testGroup)
+testThreat <- dplyr::select(na.omit(df1[-train,]), threat)
+table(knnPred,testThreat$threat)
+mean(knnPred == testThreat$threat)
 
 ### ROC
-ROCPred <- qdaPred
-levels(ROCPred$class) <- c(0,1,2)
+ROCPred <- knnPred
 
 library(pROC)
-multiROC <- multiclass.roc(testGroup, as.numeric(ROCPred$class))
+multiROC <- multiclass.roc(testThreat$threat, as.numeric(ROCPred))
 multiROC$auc
-

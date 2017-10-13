@@ -18,7 +18,8 @@ library(data.world)
 library(shiny)
 library(gridExtra)
 library(MASS)
-library(ROCR)  
+library(ROCR)
+library(pROC)
 knitr::opts_chunk$set(echo = TRUE)
 ```
   
@@ -29,10 +30,12 @@ sessionInfo()
 ```
 
 ## **Github Link** 
-TBD
+https://github.com/devtl/policeShootings
 
 ## **Introduction** 
-Some Introduction.
+Fall 2017 classification project. Objective is to compare the quality of classification algorithms used (logistic regression, linear discriminant analysis, quadratic discriminant analysis, and kth nearest neighbors) to predict perceived threat levels based on several factors.
+
+Dataset is stored on https://data.world/devtl/fatalpoliceshootings.
 
 ## **Getting data from data.world** 
 Short description of the data.
@@ -111,7 +114,7 @@ train2 <- rownames(
   )
 
 ### LOG REGRESSION
-logFit1 = glm(threat ~ signs_of_mental_illness + armedOrUnarmed, 
+logFit1 = glm(threat ~ age + gender + flee + signs_of_mental_illness + armedOrUnarmed, 
             data = df2, 
             family = binomial, 
             subset = train2)
@@ -130,33 +133,21 @@ logTestErr <- 1- mean(logPred1 == testGroup1)
 ```
 The test error for the given LDA model is `r format(logTestErr, digits = 2)`.
 
-```{r}
-### ROC curve
-pred <- prediction(logProb1, testGroup1)    
-perf <- performance(pred, measure = "tpr", x.measure = "fpr") 
-renderPlot({
-  plot(perf, col=rainbow(7), main="ROC curve Theat Levels", xlab="Specificity (False Positives)", ylab="Sensitivity (True Positives)")
-  
-  abline(0, 1)
-})
-
-```
-
 
 ### LDA
 
 ```{r}
 ### LDA
-lda.fit <- lda(threat ~ signs_of_mental_illness + armedOrUnarmed, data = df1, subset = train)
+lda.fit <- lda(threat ~ age + gender + flee + signs_of_mental_illness + armedOrUnarmed, data = df1, subset = train)
 
 lda.fit
 
-ldaPred <- data.frame(predict(lda.fit,testDf))
+ldaPred <- predict(lda.fit,testDf)
 
 #renderTable({head(ldaPred)})
 
 renderPlot({
-  ggplot(ldaPred, mapping = aes(x.LD1, x.LD2, color = class)) + geom_point(alpha = 0.7) + theme_minimal() + labs(x = "LD1", y = "LD2")
+  ggplot(data.frame(ldaPred), mapping = aes(x.LD1, x.LD2, color = class)) + geom_point(alpha = 0.7) + theme_minimal() + labs(x = "LD1", y = "LD2")
 })
 
 
@@ -173,13 +164,13 @@ pivotTab
 
 The test error for the given LDA model is `r format(ldaTestErr, digits = 2)`.
 
-## Quadratic Discriminant Analysis
+### Quadratic Discriminant Analysis
 ```{r}
-qda.fit <- qda(threat ~ signs_of_mental_illness + armedOrUnarmed, data = df1, subset = train)
+qda.fit <- qda(threat ~ age + gender + flee + signs_of_mental_illness + armedOrUnarmed, data = df1, subset = train)
 
 qda.fit
 
-qdaPred <- data.frame(predict(qda.fit,testDf))
+qdaPred <- predict(qda.fit,testDf)
 
 qdaClass <- qdaPred$class
 testGroup = testDf$threat
@@ -189,6 +180,108 @@ qdaTestErr <- 1 - mean(qdaClass == testGroup)
 ```
 The test error for the given LDA model is `r format(qdaTestErr, digits = 2)`.
 
-## K Nearest-Neighbors
+### K Nearest-Neighbors
+
+```{r}
+### TEST/TRAIN
+testDf3 <- dplyr::select(na.omit(df1[-train,]), -armed, -threat, -race)
+trainDf3<- dplyr::select(na.omit(df1[train,]), -armed, -threat, -race)
+trainThreat3 <- dplyr::select(na.omit(df1[train,]), threat)
+
+### KNN
+library(class)
+
+knnPred <- knn(trainDf3, testDf3, trainThreat3$threat, k=5)
+
+testThreat3 <- dplyr::select(na.omit(df1[-train,]), threat)
+table(knnPred,testThreat3$threat)
+knnTestErr <- 1 - mean(knnPred == testThreat3$threat)
+```
+The test error for the given KNN model is `r format(knnTestErr, digits = 2)`.
 
 
+## ROC Curves
+
+### Logistic Regression
+
+```{r}
+glmPred <- predict(logFit1, newdata = testDf2)
+glmPred <- lapply(glmPred, function(x){ifelse(x>0, 2, 1)}) # 1=attack, 2=other
+
+ROCPred <- as.vector(glmPred, mode = "numeric")
+
+ROC <- roc(testGroup1, as.numeric(ROCPred))
+
+renderPlot({
+  
+  plot(ROC, main="ROC curve Theat Levels", xlab="Specificity (False Positives)", 
+     ylab="Sensitivity (True Positives)")  
+})
+
+ROC
+```
+
+### LDA
+
+```{r}
+
+ROCPred <- ldaPred
+levels(ROCPred$class) <- c(0,1,2) #attack = 0, other = 1, undetermined = 2
+multiROC <- multiclass.roc(testGroup,as.numeric(ROCPred$class))
+
+rs <- multiROC$rocs
+renderPlot({
+  par(mfrow = c(1,3))
+  plot(rs[[1]], print.auc = TRUE, main="ROC curve Theat Levels [[1]]", xlab="Specificity (False Positives)", ylab="Sensitivity (True Positives)")
+  plot(rs[[2]], print.auc = TRUE, main="ROC curve Theat Levels [[2]]", xlab="Specificity (False Positives)", ylab="Sensitivity (True Positives)")
+  plot(rs[[3]], print.auc = TRUE, main="ROC curve Theat Levels [[3]]", xlab="Specificity (False Positives)", ylab="Sensitivity (True Positives)")
+  
+})
+
+rs
+
+```
+
+### QDA
+
+```{r}
+
+ROCPred2 <- qdaPred
+levels(ROCPred2$class) <- c(0,1,2)
+
+multiROC2 <- multiclass.roc(testGroup, as.numeric(ROCPred2$class))
+
+rs2 <- multiROC2$roc
+
+renderPlot({
+  par(mfrow=c(1,3))
+  plot(rs2[[1]], print.auc = TRUE, main="ROC curve Theat Levels [[1]]", xlab="Specificity (False Positives)", ylab="Sensitivity (True Positives)")
+  plot(rs2[[2]], print.auc = TRUE, main="ROC curve Theat Levels [[2]]", xlab="Specificity (False Positives)", ylab="Sensitivity (True Positives)")
+  plot(rs2[[3]], print.auc = TRUE, main="ROC curve Theat Levels [[3]]", xlab="Specificity (False Positives)", ylab="Sensitivity (True Positives)")
+  
+})
+
+rs2
+
+```
+
+### KNN
+
+```{r}
+
+ROCPred3 <- knnPred
+
+multiROC3 <- multiclass.roc(testThreat3$threat, as.numeric(ROCPred3))
+
+rs3 <- multiROC3$rocs
+
+renderPlot({
+  par(mfrow=c(1,3))
+  plot(rs3[[1]], print.auc = TRUE, main="ROC curve Theat Levels [[1]]", xlab="Specificity (False Positives)", ylab="Sensitivity (True Positives)")
+  plot(rs3[[2]], print.auc = TRUE, main="ROC curve Theat Levels [[2]]", xlab="Specificity (False Positives)", ylab="Sensitivity (True Positives)")
+  plot(rs3[[3]], print.auc = TRUE, main="ROC curve Theat Levels [[3]]", xlab="Specificity (False Positives)", ylab="Sensitivity (True Positives)")
+  
+})
+
+rs3
+```

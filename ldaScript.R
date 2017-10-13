@@ -1,6 +1,7 @@
 library(tidyverse)
 library(data.world)
 library(MASS)
+library(gridExtra)
 
 ### IMPORT DATA
 project <- "https://data.world/devtl/fatalpoliceshootings/"
@@ -42,7 +43,7 @@ trainDf<- na.omit(df1[train,])
 ### LDA
 lda.fit <- lda(threat ~ age + gender + flee + signs_of_mental_illness + armedOrUnarmed, data = df1, subset = train)
 
-ldaPred <- data.frame(predict(lda.fit,testDf))
+ldaPred <- predict(lda.fit,testDf, type = "response")
 
 library(gridExtra)
 pl1 <- ggplot(ldaPred) + geom_histogram(mapping = aes(x=x.LD1)) + facet_wrap(~ class)
@@ -58,6 +59,25 @@ testGroup = testDf$threat
 ldaClass=ldaPred$class
 table(ldaClass, testGroup)
 mean(ldaClass == testGroup)
+
+### ROC curve
+library(ROCR)
+pred1 <- prediction(ldaPred$posterior[,1], testGroup)    
+perf1 <- performance(pred1, measure = "tpr", x.measure = "fpr") 
+plot(perf1, col=rainbow(7), main="ROC curve Theat Levels", xlab="Specificity (False Positives)", ylab="Sensitivity (True Positives)")
+abline(0, 1)
+
+# pROC
+ROCPred <- ldaPred
+levels(ROCPred$class) <- c(0,1,2)
+library(pROC)
+multiROC <- multiclass.roc(testGroup,as.numeric(ROCPred$class))
+multiROC$auc
+
+rs <- multiROC$rocs
+plot.roc(rs[[1]], print.auc = TRUE)
+plot(rs[[2]], print.auc = TRUE)
+
 
 ## Thresholds
 # want to better predict 'other'
