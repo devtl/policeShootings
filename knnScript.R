@@ -49,9 +49,21 @@ testThreat <- dplyr::select(na.omit(df1[-train,]), threat)
 table(knnPred,testThreat$threat)
 mean(knnPred == testThreat$threat)
 
+## KNN 2
+testDf2 <- dplyr::select(na.omit(df1[-train,]), age, gender)
+trainDf2 <- dplyr::select(na.omit(df1[train,]), age, gender)
+trainThreat2 <- dplyr::select(na.omit(df1[train,]), threat)
+
+knnPred2 <- knn(trainDf2, testDf2, trainThreat2$threat, k=10)
+table(knnPred2,testThreat$threat)
+mean(knnPred2 == testThreat$threat)
+
+
 ### ROC
-ROCPred <- knnPred
+ROCPred <- knnPred2
 
 library(pROC)
 multiROC <- multiclass.roc(testThreat$threat, as.numeric(ROCPred))
 multiROC$auc
+rs <- multiROC$rocs
+plot(rs[[1]])

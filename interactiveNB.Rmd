@@ -1,6 +1,6 @@
 ---
 title: "Fatal Police Shootings"
-author: "Devin Luu"
+author: "Devin Luu, Steven Villarreal, Yifan Lyu, Matthew Strasburg"
 resource_files:
 - .Renviron
 output:
